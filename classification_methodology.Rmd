@@ -1,0 +1,202 @@
+---
+title: Classification methodology of resistance and tolerance to 
+  virus infection in sweetpotato
+author: "Kreuze et al."
+date: "2023-05-18"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+A classification based on the total viral load (TVL, calculated as the arithmetic sum of qPCR RER values for SPFMV, SPCSV, and SPLCV  ) and total yield reduction (Δ%) relationship was established for all plots belonging to NI and GI blocks according to the terms proposed by Cooper & Jones (1982). A scatter plot was generated considering Δ% and TVL in the x and y-axis, respectively. Four categories based on total viral load and Δ% were established in four quadrants of the scatter plot (Fig. 1): i) Sensitive (Se): located in the lower left quadrant, with reduced biomass accumulation (Δ% < -20%) and low virus load  (< TVLmax/2), ii) Susceptible (Su): plots in the upper left quadrant, with reduced biomass accumulation (Δ% < -20%) and high virus load (> TVLmax/ 2), iii) Resistant (R): located in the lower right quadrant, with high biomass accumulation (Δ% > -20%) and low virus load  (< TVLmax/2), iv) Tolerant (T): located in the upper right quadrant, with high biomass accumulation (Δ% > -20%) and high virus load  (> TVLmax/2). A global classification for the assessed genotypes was performed using GI treatment and the genotype was assigned to the quadrant when at least two plots fell within it.  
+
+```{r figur-1, echo=FALSE, fig.align='center', out.width = "55%", fig.cap='**Figure 1:** Schematic representation used for sweetpotato genotypes classification.'}
+knitr::include_graphics("./Figure 1.png")
+```
+
+
+
+## Virus load and yield data
+
+The dataset for this demostration consist of two evaluations of virus load (`_EV1` and `_EV2` measurement at 48 and 79 days after transplanting, respectively) and total yield (`bytha`). Regarding the virus load variable, we evaluate the qPCR Relative Expression Ratio (qPCR_RER) for 3 virus: sweet potato feathery mottle virus (SPFMV, `SPFMV_EV1` and `SPFMV_EV2`), sweet potato chlorotic stunt virus (SPCVS, `SPCVS_EV1` and `SPCVS_EV2`) and sweet potato leaf curl virus (SPLCV, `SPLCV_EV1` and `SPLCV_EV2`). Raw data can be download [here](https://doi.org/10.21223/ZCIWUL). Let's see the data with the R chunk code below:
+
+```{r}
+df <- read.csv("virus-load_&_yield_data.csv")
+#table(df$genotype, df$trt)
+str(df)
+```
+Note that there are 108 observations: 12 genotypes (`genotype`) $\times$ 3 repetitions (`rep`) $\times$ 3 treatments (`trt`). To calculate total yield reduction (Δ%, `YR` in the R code), we considered the mean values per genotype of the control treatment (**CTL**) and compare them against the other treatments (**GI** - "Grafted-Infected" and **NI** - "Natural Infected"). The 2 virus load evaluations were averaged by virus, and then the arithmetic sum of these was considered as Total Virus Load (`TVL`). Let's run the R chunk code below for that:
+
+
+```{r load-packages, include=TRUE, message=FALSE}
+# loading libraries
+library(dplyr)
+
+# total yield mean values per genotype for plants under control treatment
+smr <- df[df$trt=="CTL",] %>%
+  group_by(genotype) %>%
+  summarise_at(c("bytha"), mean, rm.na=TRUE)
+
+# new column for the control values
+df$bytha_CTL <- rep(rep(smr$bytha, each = 3), 3)
+
+# Percentage of yield reduction (Δ%) computation
+df$YR <- (df$bytha - df$bytha_CTL)/df$bytha_CTL*100
+
+# Total Virus Load (TVL) computation
+## average of the two evaluations 
+df$SPFMV <- (df$SPFMV_EV1 + df$SPFMV_EV2)/2
+df$SPCSV <- (df$SPCSV_EV1 + df$SPCSV_EV2)/2
+df$SPLCV <- (df$SPLCV_EV1 + df$SPLCV_EV2)/2
+
+## arithmetic sum of each kind of virus load 
+df$TVL <- df$SPFMV + df$SPCSV + df$SPLCV
+```
+
+## Clasification criteria
+
+A function (`virus_class`) based on TVL and Δ% (`YR` in the R code) were made. Thus, four categories corresponding to each quadrants of the scatter plot showed in Fig. 1 was defined as follow: 
+
+- Susceptible: Δ% $\le$ `-20` & TVL $\ge$ `TVL_threshold` (upper left quadrant).
+
+- Sensitive: Δ% $\le$ `-20` & TVL $\le$ `TVL_threshold` (lower left quadrant).
+
+- Tolerant: Δ% $\ge$ `-20` & TVL $\ge$ `TVL_threshold` (upper right quadrant).
+
+- Resistant: Δ% $\ge$ `-20` & TVL $\le$ `TVL_threshold` (lower right quadrant).
+
+`TVL_threshold` was considered as the midpoint of the range of values on the y-axis, and a value of -20% was used as YR threshold (`YR_threshold`). Let's run the R chunk code below for that:
+
+```{r echo=FALSE}
+TVLmean1 <- exp(max(log(df$TVL[df$trt=="GI"]))/2)
+TVLmean2 <- exp(max(log(df$TVL[df$trt=="NI"]))/2)
+TVLmean3 <- exp(max(log(df$TVL[df$trt=="CTL"]))/2)
+
+YRtreshold <- -20
+```
+
+```{r}
+
+# Function for genotypes classification based on TVL and YR
+virus_class <- function(id, TVL, YR, data, TVL_threshold = NULL, YR_threshold = -20){
+  
+  TVL = data$TVL
+  YR = data$YR
+  ID = data$id
+  class = vector()
+  
+  # Threshold value for TVL
+  if(is.null(TVL_threshold)) {
+    LR = log(range(TVL))
+    TVL_threshold = exp(LR[1] + (LR[2] - LR[1])/2)
+  }
+  
+  for(i in 1:nrow(data)){
+  
+  # Classification criteria    
+    if(YR[i] <= YR_threshold & TVL[i] >= TVL_threshold){
+      class[i] = "Susceptible"
+    } else if (YR[i] <= YR_threshold & TVL[i] <= TVL_threshold){
+      class[i] = "Sensitive"
+    } else if (YR[i] >= YR_threshold & TVL[i] >= TVL_threshold){
+      class[i] = "Tolerant"
+    } else if (YR[i] >= YR_threshold & TVL[i] <= TVL_threshold){
+      class[i] = "Resistant"
+    }
+  }
+  
+  dfr <- data.frame(ID, TVL, YR, class)
+
+  return(out = list("out" = dfr, "TVL_threshold" = TVL_threshold))
+}
+```
+
+Let's run the `virus_class` function for **GI**:
+
+```{r}
+df$id <- paste0(df$genotype, " + ", df$rep)
+(vc<-virus_class("id", "TVL", "YR", data = df[df$trt == "GI",]))
+```
+
+Note that we also can run the `virus_class` function for the other treatments. However, in the case of **CTL**, a new category is defined ("Nothing") if TVL is lower than 516. This value is due to the fact that there is no virus infection in CTL when virus load is lower than 140, 104, and 272  for SPFMV, SPCSV, and SPLCV (Kreuze, personal communication). Let's run the R chunk code below:
+
+```{r}
+virus_class("id", "TVL", "YR", data = df[df$trt == "NI",])
+virus_class("id", "TVL", "YR", data = df[df$trt == "CTL",])
+#vc_CTL<-virus_class("id", "TVL", "YR", data = df[df$trt == "CTL",])
+#vc_CTL$out$class_NA <- vc_CTL$out$class
+#vc_CTL$out$class_NA[vc_CTL$out$TVL <= 516] <- "Nothing"
+#vc_CTL$out
+
+#vc_CTL$out[vc_CTL$out$class_NA == "Nothing",]
+
+df$class <- NA
+df$class[df$trt == "GI"] <- virus_class("id", "TVL", "YR", data = df[df$trt == "GI",])$out$class
+df$class[df$trt == "NI"] <- virus_class("id", "TVL", "YR", data = df[df$trt == "NI",])$out$class
+df$class[df$trt == "CTL"] <- virus_class("id", "TVL", "YR", data = df[df$trt == "CTL",])$out$class
+
+df$class[df$trt == "CTL" & df$TVL <= 516] <- "Nothing"
+
+write.csv(df, "out_data.csv")
+
+table(df$trt,df$class)
+```
+
+Note that the "Nothing" category only appears in CTL.
+
+
+## Schematic representation for Grafted-Infected plants
+
+For the purpose of this demonstration, we only considered plants under GI because is there where they can express their maximum response capacity to virus infection, and so we can know their "real" resistance and tolerance capacity. Let's see a schematic representation of this classification for Grafted-Infected plants:
+
+```{r}
+
+xpch<-rep(0:2, 12)
+xcolor<-c("blue", "red", "green", "yellow", "pink", "cyan", 
+          "brown", "magenta", "palegreen", "slateblue", "gray80", "gold")
+xcol=rep(xcolor,each=3)
+
+par(family = "serif", mar = c(3.4,5,2.5,5.6))
+
+# TVL and YR data
+x=vc$out$YR
+y=vc$out$TVL
+
+# TVL and YR tresholds
+ymean=vc$TVL_threshold
+xmean=-20
+
+plot(x, y, pch = xpch, col = xcol, axes = FALSE, lwd = 1.5, cex = 1.2,
+     log = "y", xlab = "", ylab = "", las = 1, xlim = c(-85, 55))
+title("Sweetpotatoes classification for the Grafted-infected treatment")
+
+box()
+abline(h = ymean,v = xmean, lty=3, col="gray70")
+
+# x-axis
+axis(side = 1, at = seq(-80,55,by=15), tck = -0.02, mgp = c(2,0.6,0), las = 1,  cex.axis = 0.95)
+mtext(side = 1, bquote(Delta*"%"), line = 2.3, cex = 1.2)
+
+# y-axis
+yat = exp(seq(log(range(y)[1]), log(range(y)[2]), length = 7))
+axis(side=2, at=yat, tck=-0.02, mgp=c(2,0.6,0), las=1, labels = expression(1.1*"\u00D7"*10^2,
+                                                                           9.6*"\u00D7"*10^2,
+                                                                           8.7*"\u00D7"*10^3,
+                                                                           7.8*"\u00D7"*10^4,
+                                                                           7.1*"\u00D7"*10^5,
+                                                                           6.4*"\u00D7"*10^6,
+                                                                           5.7*"\u00D7"*10^7))
+mtext(side = 2, bquote("TVL"), line = 3.7, cex = 1.2)
+
+# legend
+par(xpd = TRUE)
+legend(x = 63, y = 4005000, legend = unique(df$geno), col = xcolor, cex = 0.7, pch = c(rep(16,12)))
+
+```
